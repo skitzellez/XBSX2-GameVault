@@ -77,7 +77,7 @@ private:
 
 	ControllerDataVector::iterator GetControllerDataForJoystickId(SDL_JoystickID id);
 	ControllerDataVector::iterator GetControllerDataForPlayerId(int id);
-	int GetFreePlayerId() const;
+	int GetFreePlayerId(int first = 0) const;
 
 	bool OpenDevice(SDL_JoystickID index, bool is_gamepad);
 	bool CloseDevice(SDL_JoystickID joystick_index);

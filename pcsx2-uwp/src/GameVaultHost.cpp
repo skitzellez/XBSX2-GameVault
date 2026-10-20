@@ -85,7 +85,24 @@ void GameVaultHost::AutoMapController(INISettingsInterface& si)
 	// Controller 1 with no buttons at all (the defaults are made before any controller is seen, so a fresh or reset
 	// settings file has none) gets the Xbox controller's standard layout. A player's own mapping, even a partial one,
 	// is left alone. Games saw no input at all: "Controller 1 has no input bindings configured".
-	if (si.GetStringValue("Pad1", "Type", "DualShock2") != "DualShock2" || !si.GetStringValue("Pad1", "Cross").empty() ||
+	// The first pad is always SDL-0 now (SDLInputSource numbers pads in order on the Xbox): controller 1 mapped to
+	// another pad number, from a console that called the pad player 1, follows it to SDL-0, buttons unchanged.
+	const std::string cross = si.GetStringValue("Pad1", "Cross");
+	if (cross.starts_with("SDL-") && !cross.starts_with("SDL-0/"))
+	{
+		const std::string from = cross.substr(0, cross.find('/') + 1);
+		auto items = si.GetKeyValueList("Pad1");
+		for (auto& [key, value] : items)
+			for (size_t at; (at = value.find(from)) != std::string::npos;)
+				value.replace(at, from.size(), "SDL-0/");
+		si.SetKeyValueList("Pad1", items);
+		auto lock = Host::GetSettingsLock();
+		Error error;
+		if (si.Save(&error))
+			Console.WriteLn("Game Vault: controller 1 moved from %s to SDL-0/", from.c_str());
+		return;
+	}
+	if (si.GetStringValue("Pad1", "Type", "DualShock2") != "DualShock2" || !cross.empty() ||
 		!si.GetStringValue("Pad1", "Start").empty() || !si.GetStringValue("Pad1", "Up").empty())
 		return;
 

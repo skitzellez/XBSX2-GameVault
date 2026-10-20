@@ -1353,9 +1353,9 @@ SDLInputSource::ControllerDataVector::iterator SDLInputSource::GetControllerData
 	return std::find_if(m_controllers.begin(), m_controllers.end(), [id](const ControllerData& cd) { return cd.player_id == id; });
 }
 
-int SDLInputSource::GetFreePlayerId() const
+int SDLInputSource::GetFreePlayerId(int first) const
 {
-	for (int player_id = 0;; player_id++)
+	for (int player_id = first;; player_id++)
 	{
 		size_t i;
 		for (i = 0; i < m_controllers.size(); i++)
@@ -1408,6 +1408,18 @@ bool SDLInputSource::OpenDevice(SDL_JoystickID index, bool is_gamepad)
 		}
 	}
 
+#if defined(WINRT_XBOX)
+	// Game Vault: the console's player numbers do not follow the pads in hand. A pad came in as player 1, or a
+	// device with buttons only took player 0, and controller 1 (bound to SDL-0) got no input. Pads are numbered
+	// from 0 in the order they appear; devices without sticks from 8, so they never take a pad's place.
+	{
+		const bool is_pad = gamepad || SDL_GetNumJoystickAxes(joystick) >= 2;
+		const int ordered_id = GetFreePlayerId(is_pad ? 0 : 8);
+		if (ordered_id != player_id)
+			INFO_LOG("SDLInputSource: Controller {} reported player {}, numbered {} in order.", index, player_id, ordered_id);
+		player_id = ordered_id;
+	}
+#endif
 	if (player_id < 0 || GetControllerDataForPlayerId(player_id) != m_controllers.end())
 	{
 		const int free_player_id = GetFreePlayerId();
