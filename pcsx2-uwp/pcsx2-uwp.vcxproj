@@ -153,9 +153,12 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClInclude Include="..\pcsx2\PrecompiledHeader.h" />
+    <ClInclude Include="src\CPUEventQueue.h" />
+    <ClInclude Include="src\UWPHost.h" />
     <ClInclude Include="src\UWPKeyboard.h" />
     <ClInclude Include="src\UWPUtils.h" />
     <ClInclude Include="src\GameVaultWheel.h" />
+    <ClInclude Include="src\GameVaultHost.h" />
   </ItemGroup>
   <ItemGroup>
     <AppxManifest Include="Package.appxmanifest">
@@ -165,10 +168,13 @@
   <ItemGroup>
     <ClCompile Include="..\pcsx2\PrecompiledHeader.cpp" />
     <ClCompile Include="src\main.cpp" />
+    <ClCompile Include="src\UWPHost.cpp" />
+    <ClCompile Include="src\Translations.cpp" />
     <ClCompile Include="src\UWPKeyboard.cpp" />
     <ClCompile Include="src\UWPSound.cpp" />
     <ClCompile Include="src\UWPFileRedirect.cpp" />
     <ClCompile Include="src\GameVaultWheel.cpp" />
+    <ClCompile Include="src\GameVaultHost.cpp" />
   </ItemGroup>
   <ItemGroup>
     <None Include="packages.config" />
@@ -206,6 +212,12 @@
     </Image>
   </ItemGroup>
   <ItemGroup>
+    <Content Include="..\pcsx2-qt\Translations\*.ts">
+      <Link>translations\%(Filename)%(Extension)</Link>
+      <TargetPath>translations\%(Filename)%(Extension)</TargetPath>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <DeploymentContent>true</DeploymentContent>
+    </Content>
     <Content Include="$(DepsBinDir)\*.dll">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </Content>

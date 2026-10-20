@@ -31,10 +31,6 @@
 #include "common/StringUtil.h"
 #include "common/Timer.h"
 
-#ifdef WINRT_XBOX
-#include "pcsx2-uwp/src/UWPUtils.h"
-#endif
-
 #include "IconsPromptFont.h"
 #include "fmt/format.h"
 #include "rc_client.h"
@@ -140,7 +136,7 @@ namespace Achievements
 	// Size of the EE physical memory exposed to RetroAchievements.
 	static u32 GetExposedEEMemorySize();
 
-	static bool CreateClient(rc_client_t** client, std::unique_ptr<HTTPDownloader>* http);
+	static bool CreateClient(rc_client_t** client, std::unique_ptr<HTTPDownloader>* http, const std::string& custom_host);
 	static void DestroyClient(rc_client_t** client, std::unique_ptr<HTTPDownloader>* http);
 	static void ClientMessageCallback(const char* message, const rc_client_t* client);
 	static uint32_t ClientReadMemory(uint32_t address, uint8_t* buffer, uint32_t num_bytes, rc_client_t* client);
@@ -437,28 +433,8 @@ bool Achievements::Initialize()
 
 	EnsureCacheDirectoriesExist();
 
-	auto lock = GetLock();
-	pxAssertRel(EmuConfig.Achievements.Enabled, "Achievements are enabled");
-	pxAssertRel(!s_client && !s_http_downloader, "No client and downloader");
-
-	if (!CreateClient(&s_client, &s_http_downloader))
-		return false;
-
-	// Hardcore starts off. We enable it on first boot.
-	s_hardcore_mode = false;
-
-	rc_client_set_event_handler(s_client, ClientEventHandler);
-
-	rc_client_set_hardcore_enabled(s_client, s_hardcore_mode);
-	rc_client_set_encore_mode_enabled(s_client, EmuConfig.Achievements.EncoreMode);
-	rc_client_set_unofficial_enabled(s_client, EmuConfig.Achievements.UnofficialTestMode);
-	rc_client_set_spectator_mode_enabled(s_client, EmuConfig.Achievements.SpectatorMode);
-
-	// Begin disc identification early, before the login finishes.
-	if (VMManager::HasValidVM())
-		IdentifyGame(VMManager::GetDiscCRC(), VMManager::GetCurrentCRC());
-
 	const std::string username = Host::GetBaseStringSettingValue("Achievements", "Username");
+	const std::string custom_host = Host::GetBaseStringSettingValue("Achievements", "Host", "");
 
 	// Check the base settings file to see if the token is defined inside. Move if found.
 	std::string oldToken = Host::GetBaseStringSettingValue("Achievements", "Token");
@@ -478,6 +454,28 @@ bool Achievements::Initialize()
 	}
 
 	const std::string api_token = Host::GetStringSettingValue("Achievements", "Token");
+
+	auto lock = GetLock();
+	pxAssertRel(EmuConfig.Achievements.Enabled, "Achievements are enabled");
+	pxAssertRel(!s_client && !s_http_downloader, "No client and downloader");
+
+	if (!CreateClient(&s_client, &s_http_downloader, custom_host))
+		return false;
+
+	// Hardcore starts off. We enable it on first boot.
+	s_hardcore_mode = false;
+
+	rc_client_set_event_handler(s_client, ClientEventHandler);
+
+	rc_client_set_hardcore_enabled(s_client, s_hardcore_mode);
+	rc_client_set_encore_mode_enabled(s_client, EmuConfig.Achievements.EncoreMode);
+	rc_client_set_unofficial_enabled(s_client, EmuConfig.Achievements.UnofficialTestMode);
+	rc_client_set_spectator_mode_enabled(s_client, EmuConfig.Achievements.SpectatorMode);
+
+	// Begin disc identification early, before the login finishes.
+	if (VMManager::HasValidVM())
+		IdentifyGame(VMManager::GetDiscCRC(), VMManager::GetCurrentCRC());
+
 	if (!username.empty() && !api_token.empty())
 	{
 		Console.WriteLn("Achievements: Attempting login with user '%s'...", username.c_str());
@@ -500,7 +498,7 @@ u32 Achievements::GetExposedEEMemorySize()
 	return Ps2MemSize::ExposedRam + Ps2MemSize::Scratch;
 }
 
-bool Achievements::CreateClient(rc_client_t** client, std::unique_ptr<HTTPDownloader>* http)
+bool Achievements::CreateClient(rc_client_t** client, std::unique_ptr<HTTPDownloader>* http, const std::string& custom_host)
 {
 	*http = HTTPDownloader::Create(Host::GetHTTPUserAgent());
 	if (!*http)
@@ -528,7 +526,6 @@ bool Achievements::CreateClient(rc_client_t** client, std::unique_ptr<HTTPDownlo
 
 	rc_client_set_userdata(new_client, http->get());
 
-	const std::string custom_host = Host::GetBaseStringSettingValue("Achievements", "Host", "");
 	if (!custom_host.empty())
 	{
 		Console.WriteLn("Achievements: Using custom host %s", custom_host.c_str());
@@ -952,11 +949,7 @@ void Achievements::PlayAchievementSound(bool is_specific_sound_enabled, const st
 		? Path::Combine(EmuFolders::Resources, default_sound_name)
 		: custom_sound_name;
 
-#if !defined(WINRT_XBOX)
 	Common::PlaySoundAsync(path.c_str());
-#else
-	UWP::PlaySoundAsync(path.c_str());
-#endif
 }
 
 void Achievements::GameChanged(u32 disc_crc, u32 crc)
@@ -1803,6 +1796,8 @@ bool Achievements::CanEnableHardcoreMode()
 
 bool Achievements::Login(const char* username, const char* password, Error* error)
 {
+	const std::string custom_host = Host::GetBaseStringSettingValue("Achievements", "Host", "");
+
 	auto lock = GetLock();
 
 	// We need to use a temporary client if achievements aren't currently active.
@@ -1816,7 +1811,7 @@ bool Achievements::Login(const char* username, const char* password, Error* erro
 	};
 	if (is_temporary_client)
 	{
-		if (!CreateClient(&client, &temporary_downloader))
+		if (!CreateClient(&client, &temporary_downloader, custom_host))
 		{
 			Error::SetString(error, "Failed to create client.");
 			return false;
