@@ -9,6 +9,8 @@
 
 #include "pcsx2/Achievements.h"
 #include "pcsx2/GameList.h"
+#include "pcsx2/GS.h"
+#include "pcsx2/ps2/BiosTools.h"
 #include "pcsx2/GSDumpReplayer.h"
 #include "pcsx2/INISettingsInterface.h"
 #include "pcsx2/ImGui/FullscreenUI.h"
@@ -23,6 +25,9 @@
 #include "common/Error.h"
 #include "common/FileSystem.h"
 #include "common/Path.h"
+#include "common/StringUtil.h"
+
+#include "IconsFontAwesome.h"
 #include "common/ProgressCallback.h"
 #include "common/Threading.h"
 #include "common/WindowInfo.h"
@@ -604,13 +609,36 @@ void Host::OnVMStarting()
 	UWPHost::RunOnUIThread(&UWPHost::UpdateMouseMode);
 }
 
+// Game Vault: a game that never sets up a picture on the free BIOS (OpenPS2BIOS, still beta) sat on a black
+// screen with nothing said (a player, 2026-10-21). The game sets the video mode itself, so a mode still unset
+// 25 s after the start means no picture; the player is told why, again every 30 s while it stays black.
+// Needs proper testing on more games (AI-assisted).
+static std::atomic<u64> s_gv_vm_start_ms{0};
+
+static u64 GvNowMs()
+{
+	return static_cast<u64>(std::chrono::duration_cast<std::chrono::milliseconds>(
+		std::chrono::steady_clock::now().time_since_epoch()).count());
+}
+
+static bool GvFreeBios()
+{
+	return StringUtil::toLower(BiosPath).find("openps2bios") != std::string::npos;
+}
+
+// test switch LocalState\gv-no-picture-test.txt: the notice shows as if the game never set up a picture
+static bool s_gv_no_picture_test = false;
+
 void Host::OnVMStarted()
 {
+	s_gv_no_picture_test = FileSystem::FileExists(Path::Combine(EmuFolders::DataRoot, "gv-no-picture-test.txt").c_str());
+	s_gv_vm_start_ms.store(GvNowMs(), std::memory_order_release);
 	UWPHost::RunOnUIThread(&UWPHost::UpdateMouseMode);
 }
 
 void Host::OnVMDestroyed()
 {
+	s_gv_vm_start_ms.store(0, std::memory_order_release);
 	s_shutdown_request.reset();
 	s_vm_generation.fetch_add(1, std::memory_order_acq_rel);
 	if (const auto thread = UWPHost::GetEmuThread())
@@ -635,7 +663,29 @@ void Host::OnGameChanged(const std::string& title, const std::string& elf_overri
 
 void Host::OnPerformanceMetricsUpdated()
 {
-	// OSD handles this.
+	// OSD handles the numbers. Game Vault: the no-picture notice (see s_gv_vm_start_ms). Runs on the GS thread
+	// every half second, also while the screen is black. The 25 s count from the start, or from the last time a
+	// picture mode was set (a reset clears it for a moment).
+	static u64 s_told_ms = 0, s_picture_ms = 0;
+	const u64 start = s_gv_vm_start_ms.load(std::memory_order_acquire);
+	if (!start)
+		return;
+	const u64 now = GvNowMs();
+	if (gsVideoMode != GS_VideoMode::Uninitialized && !s_gv_no_picture_test)
+	{
+		s_picture_ms = now;
+		return;
+	}
+	const u64 from = std::max(start, s_picture_ms);
+	if (now - from < 25000 || (s_told_ms > from && now - s_told_ms < 30000) || !GvFreeBios())
+		return;
+	if (s_told_ms <= from)
+		Console.WriteLn("Game Vault: no picture %llu s after the start on the free BIOS, player told", (now - from) / 1000);
+	s_told_ms = now;
+	Host::AddIconOSDMessage("gv_free_bios_no_picture", ICON_FA_TRIANGLE_EXCLAMATION,
+		"No picture: the free PS2 BIOS cannot start this game yet.\n"
+		"Add your own PS2 BIOS file to the Game Vault\\bios folder on your games drive, then start the game again.",
+		20.0f);
 }
 
 void Host::OnSaveStateLoading(const std::string_view filename)

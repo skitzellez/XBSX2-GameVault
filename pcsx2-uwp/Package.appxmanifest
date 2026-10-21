@@ -8,7 +8,7 @@
 	<Identity
 	  Name="GamerDad.XBSX2ForGameVault"
 	  Publisher="CN=GamerDad"
-	  Version="2.0.9.14" />
+	  Version="2.0.9.16" />
 
 	<Properties>
 		<DisplayName>XBSX2 for Game Vault</DisplayName>
