@@ -8,11 +8,11 @@
 	<Identity
 	  Name="GamerDad.XBSX2ForGameVault"
 	  Publisher="CN=GamerDad"
-	  Version="2.0.9.16" />
+	  Version="2.0.9.17" />
 
 	<Properties>
-		<DisplayName>XBSX2 for Game Vault</DisplayName>
-		<PublisherDisplayName>GamerDad</PublisherDisplayName>
+		<DisplayName>Game Vault · PS2 (XBSX2)</DisplayName>
+		<PublisherDisplayName>Skitzelles</PublisherDisplayName>
 		<Logo>Assets\StoreLogo.png</Logo>
 	</Properties>
 
@@ -34,7 +34,7 @@
 		  EntryPoint="pcsx2_uwp.App">
 
 			<uap:VisualElements
-			  DisplayName="XBSX2 for Game Vault"
+			  DisplayName="Game Vault · PS2 (XBSX2)"
 			  Description="XBSX2 (PlayStation 2 emulator by SternXD, based on PCSX2) built for Game Vault: plays from any USB drive and from the console's disc drive"
 			  Square150x150Logo="Assets\Square150x150Logo.png"
 			  Square44x44Logo="Assets\Square44x44Logo.png"
