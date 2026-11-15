@@ -26,5 +26,5 @@ namespace GameVaultHost
 
 	/// With UseHome: Game Vault's "Sharper picture (FSR)" (fsr=1). PCSX2 has no FSR; AMD FidelityFX CAS in its
 	/// "sharpen and resize" mode is the same family (sharpens while scaling to the screen).
-	void UseSharper(bool on);
+	void UseSharper(bool on, int pct = 0);
 } // namespace GameVaultHost

@@ -170,7 +170,7 @@ static void LogControllerSetup(INISettingsInterface* si)
 		si->GetStringValue("Pad1", "Type", "DualShock2").c_str(), mapped, si->GetStringValue("Pad1", "Cross", "none").c_str());
 }
 
-void GameVaultHost::UseSharper(bool on)
+void GameVaultHost::UseSharper(bool on, int pct)
 {
 	{
 		auto lock = Host::GetSettingsLock();
@@ -181,9 +181,22 @@ void GameVaultHost::UseSharper(bool on)
 			return;
 		si->SetIntValue("EmuCore/GS", "CASMode", static_cast<int>(on ? GSCASMode::SharpenAndResize : GSCASMode::Disabled));
 		si->SetBoolValue("GameVault", "CasOn", on);
+		// Game Vault's FSR strength (fsrs=10..100) is CAS sharpness 10..100. The player's own sharpness is kept
+		// in GameVault/CasOwnSharpness the first time and put back when Game Vault turns CAS off.
+		if (on && pct > 0 && pct <= 100)
+		{
+			if (!si->ContainsValue("GameVault", "CasOwnSharpness"))
+				si->SetIntValue("GameVault", "CasOwnSharpness", si->GetIntValue("EmuCore/GS", "CASSharpness", 50));
+			si->SetIntValue("EmuCore/GS", "CASSharpness", pct);
+		}
+		else if (si->ContainsValue("GameVault", "CasOwnSharpness"))
+		{
+			si->SetIntValue("EmuCore/GS", "CASSharpness", si->GetIntValue("GameVault", "CasOwnSharpness", 50));
+			si->DeleteValue("GameVault", "CasOwnSharpness");
+		}
 	}
 	Host::CommitBaseSettingChanges();
-	Console.WriteLn("Game Vault: Sharper picture (FSR) %s (AMD CAS, sharpen and resize)", on ? "on" : "off");
+	Console.WriteLn("Game Vault: Sharper picture (FSR) %s (AMD CAS, sharpen and resize), strength %d%%", on ? "on" : "off", pct);
 }
 
 void GameVaultHost::UseHome(const std::string& home, bool fps)
