@@ -170,6 +170,22 @@ static void LogControllerSetup(INISettingsInterface* si)
 		si->GetStringValue("Pad1", "Type", "DualShock2").c_str(), mapped, si->GetStringValue("Pad1", "Cross", "none").c_str());
 }
 
+void GameVaultHost::UseSharper(bool on)
+{
+	{
+		auto lock = Host::GetSettingsLock();
+		SettingsInterface* si = Host::Internal::GetBaseSettingsLayer();
+		// turned off again only when Game Vault turned it on, so a choice made in XBSX2's own settings stays
+		const bool ours = si->GetBoolValue("GameVault", "CasOn", false);
+		if (!on && !ours)
+			return;
+		si->SetIntValue("EmuCore/GS", "CASMode", static_cast<int>(on ? GSCASMode::SharpenAndResize : GSCASMode::Disabled));
+		si->SetBoolValue("GameVault", "CasOn", on);
+	}
+	Host::CommitBaseSettingChanges();
+	Console.WriteLn("Game Vault: Sharper picture (FSR) %s (AMD CAS, sharpen and resize)", on ? "on" : "off");
+}
+
 void GameVaultHost::UseHome(const std::string& home, bool fps)
 {
 	INISettingsInterface* const base = BaseSettings();

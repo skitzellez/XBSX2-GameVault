@@ -23,4 +23,8 @@ namespace GameVaultHost
 	/// On the CPU thread, before a game from Game Vault starts: "home" is Game Vault's folder on the games drive
 	/// (empty: XBSX2's own folders), "fps" whether Game Vault's frame-rate display is on.
 	void UseHome(const std::string& home, bool fps);
+
+	/// With UseHome: Game Vault's "Sharper picture (FSR)" (fsr=1). PCSX2 has no FSR; AMD FidelityFX CAS in its
+	/// "sharpen and resize" mode is the same family (sharpens while scaling to the screen).
+	void UseSharper(bool on);
 } // namespace GameVaultHost

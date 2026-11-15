@@ -39,6 +39,7 @@ struct App : implements<App, IFrameworkViewSource, IFrameworkView>
 	std::optional<VMBootParameters> m_autoboot;
 	std::string m_home; // Game Vault's folder on the games drive (see GameVaultHost::UseHome)
 	bool m_fps = false;
+	bool m_fsr = false; // fsr=1: Game Vault's Sharper picture (GameVaultHost::UseSharper)
 
 	IFrameworkView CreateView()
 	{
@@ -90,6 +91,7 @@ struct App : implements<App, IFrameworkViewSource, IFrameworkView>
 			auto protocolActivatedEventArgs{
 				args.as<Windows::ApplicationModel::Activation::ProtocolActivatedEventArgs>()};
 			auto query = protocolActivatedEventArgs.Uri().QueryParsed();
+			m_fsr = false; // each link says it again (off sends nothing)
 
 			for (uint32_t i = 0; i < query.Size(); i++)
 			{
@@ -126,6 +128,10 @@ struct App : implements<App, IFrameworkViewSource, IFrameworkView>
 				else if (arg.Name() == winrt::hstring(L"fps"))
 				{
 					m_fps = arg.Value() == L"1";
+				}
+				else if (arg.Name() == winrt::hstring(L"fsr"))
+				{
+					m_fsr = arg.Value() == L"1";
 				}
 				else if (arg.Name() == winrt::hstring(L"launchOnExit"))
 				{
@@ -164,10 +170,11 @@ struct App : implements<App, IFrameworkViewSource, IFrameworkView>
 	// Game Vault's folders are set on the CPU thread before the game starts; a game already running is left alone
 	void BootGame(VMBootParameters params)
 	{
-		Host::RunOnCPUThread([params = std::move(params), home = m_home, fps = m_fps]() mutable {
+		Host::RunOnCPUThread([params = std::move(params), home = m_home, fps = m_fps, fsr = m_fsr]() mutable {
 			if (VMManager::HasValidVM())
 				return;
 			GameVaultHost::UseHome(home, fps);
+			GameVaultHost::UseSharper(fsr);
 			g_emu_thread->startVM(std::move(params));
 		});
 	}
