@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
+#include "pcsx2/PerformanceMetrics.h"
 #include "pcsx2/PrecompiledHeader.h"
 
 #include "UWPHost.h"
@@ -661,8 +662,57 @@ void Host::OnGameChanged(const std::string& title, const std::string& elf_overri
 {
 }
 
+// Game Vault tracker (like RPCS3's short-stall sampler from RPCS3 Spartan Test): every half second XBSX2 measures
+// the frame rate, the worst frame and how busy each thread was. A window with a frame over 50 ms is a slow moment; the
+// busiest unit in it says what held the game back (EE = the PS2's main CPU, GS = the graphics thread, VU, GPU = the
+// Xbox GPU; none over 90% = the game was waiting). A line every 60 s, and every 10 s while there were slow moments.
+// Written to the log Game Vault sends with its reports (PS2 (XBSX2) - last session.txt).
+static void GvTracker()
+{
+	static u64 s_line_ms = 0;
+	static double s_fps = 0, s_ee = 0, s_gs = 0, s_vu = 0, s_gpu = 0, s_speed = 0, s_worst = 0;
+	static u32 s_windows = 0, s_slow = 0;
+	static u32 s_held[5] = {}; // EE, GS, VU, GPU, waiting
+	const u64 now = GvNowMs();
+	if (!s_line_ms)
+		s_line_ms = now;
+	const double worst = PerformanceMetrics::GetMaximumFrameTime();
+	const double ee = PerformanceMetrics::GetCPUThreadUsage(), gs = PerformanceMetrics::GetGSThreadUsage();
+	const double vu = PerformanceMetrics::GetVUThreadUsage(), gpu = PerformanceMetrics::GetGPUUsage();
+	s_windows++;
+	s_fps += PerformanceMetrics::GetFPS();
+	s_speed += PerformanceMetrics::GetSpeed();
+	s_ee += ee, s_gs += gs, s_vu += vu, s_gpu += gpu;
+	s_worst = std::max(s_worst, worst);
+	if (worst > 50.0)
+	{
+		s_slow++;
+		const double top = std::max({ee, gs, vu, gpu});
+		s_held[top < 90.0 ? 4 : top == ee ? 0 : top == gs ? 1 : top == vu ? 2 : 3]++;
+	}
+	if (now - s_line_ms < (s_slow ? 10000u : 60000u))
+		return;
+	const double n = s_windows;
+	std::string held;
+	static constexpr const char* names[5] = {"EE", "GS", "VU", "GPU", "nothing busy (waiting)"};
+	for (int i = 0; i < 5; i++)
+		if (s_held[i])
+			held += fmt::format("{}{} x{}", held.empty() ? "" : ", ", names[i], s_held[i]);
+	Console.WriteLn(fmt::format("Game Vault: frame rate {:.0f}, speed {:.0f}%, worst frame {:.0f} ms, slow moments {} of {} "
+								"half-seconds{}{}; EE {:.0f}%, GS {:.0f}%, VU {:.0f}%, GPU {:.0f}%",
+		s_fps / n, s_speed / n, s_worst, s_slow, s_windows, held.empty() ? "" : ", held by ", held,
+		s_ee / n, s_gs / n, s_vu / n, s_gpu / n));
+	s_line_ms = now;
+	s_fps = s_ee = s_gs = s_vu = s_gpu = s_speed = s_worst = 0;
+	s_windows = s_slow = 0;
+	for (u32& h : s_held)
+		h = 0;
+}
+
 void Host::OnPerformanceMetricsUpdated()
 {
+	if (VMManager::GetState() == VMState::Running)
+		GvTracker();
 	// OSD handles the numbers. Game Vault: the no-picture notice (see s_gv_vm_start_ms). Runs on the GS thread
 	// every half second, also while the screen is black. The 25 s count from the start, or from the last time a
 	// picture mode was set (a reset clears it for a moment).
