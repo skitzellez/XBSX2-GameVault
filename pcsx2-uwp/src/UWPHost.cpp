@@ -854,6 +854,7 @@ bool UWPHost::InitializeConfig()
 	}
 
 	GameVaultHost::AutoMapController(*s_base_settings_interface);
+	GameVaultHost::AddQuickHotkeys(*s_base_settings_interface);
 
 	// Layer secrets ini on top
 	const std::string secrets_path(Path::Combine(EmuFolders::Settings, "secrets.ini"));

@@ -19,6 +19,7 @@ namespace GameVaultHost
 
 	/// After the settings are loaded: controller 1 with no buttons at all gets the Xbox controller layout.
 	void AutoMapController(INISettingsInterface& si);
+	void AddQuickHotkeys(INISettingsInterface& si);
 
 	/// On the CPU thread, before a game from Game Vault starts: "home" is Game Vault's folder on the games drive
 	/// (empty: XBSX2's own folders), "fps" whether Game Vault's frame-rate display is on.

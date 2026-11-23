@@ -80,6 +80,36 @@ bool GameVaultHost::RestoreSettings(const std::string& path)
 	return false;
 }
 
+// Game Vault (owner idea 11-18: "PS2 needs quick select (START+SELECT) ... save state for PS2"): quick save and load
+// with the controller, as in Game Vault's xemu (View + RB saves, View + LB loads, in the selected slot), and the menu
+// with Start + View as well as L3 + R3. Added once to every settings file (a player's own hotkeys stay; these come next
+// to them): GameVault/QuickHotkeys.
+void GameVaultHost::AddQuickHotkeys(INISettingsInterface& si)
+{
+	if (si.GetBoolValue("GameVault", "QuickHotkeys", false))
+		return;
+	const std::string preferred = si.GetStringValue("InputSources", "PreferredControllerSource", "SDL");
+	const std::string p = (preferred == "XInput") ? "XInput-0" : "SDL-0";
+	const struct { const char* key; std::string bind; } add[] = {
+		{"SaveStateToSlot", p + "/Back & " + p + "/RightShoulder"},
+		{"LoadStateFromSlot", p + "/Back & " + p + "/LeftShoulder"},
+		{"OpenPauseMenu", p + "/Start & " + p + "/Back"},
+	};
+	for (const auto& a : add)
+	{
+		std::vector<std::string> list = si.GetStringList("Hotkeys", a.key);
+		if (std::find(list.begin(), list.end(), a.bind) == list.end())
+			si.AddToStringList("Hotkeys", a.key, a.bind.c_str());
+	}
+	si.SetBoolValue("GameVault", "QuickHotkeys", true);
+	auto lock = Host::GetSettingsLock();
+	Error error;
+	if (si.Save(&error))
+		Console.WriteLn("Game Vault: quick save View+RB, quick load View+LB, menu Start+View added");
+	else
+		Console.ErrorFmt("Game Vault: quick hotkeys not saved: {}", error.GetDescription());
+}
+
 void GameVaultHost::AutoMapController(INISettingsInterface& si)
 {
 	// Controller 1 with no buttons at all (the defaults are made before any controller is seen, so a fresh or reset
