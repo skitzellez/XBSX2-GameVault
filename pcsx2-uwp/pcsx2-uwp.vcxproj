@@ -173,6 +173,7 @@
     <ClCompile Include="src\UWPKeyboard.cpp" />
     <ClCompile Include="src\UWPSound.cpp" />
     <ClCompile Include="src\UWPFileRedirect.cpp" />
+    <ClCompile Include="src\ModuleThrow.cpp" />
     <ClCompile Include="src\GameVaultWheel.cpp" />
     <ClCompile Include="src\GameVaultHost.cpp" />
   </ItemGroup>

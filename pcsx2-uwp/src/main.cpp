@@ -15,6 +15,10 @@
 #include "pcsx2/VMManager.h"
 
 #include <windows.h>
+#include <chrono>
+#include <cstdio>
+#include <thread>
+#include <winrt/Windows.Storage.h>
 #include <winrt/Windows.ApplicationModel.Activation.h>
 #include <winrt/Windows.ApplicationModel.Core.h>
 #include <winrt/Windows.Foundation.Collections.h>
@@ -31,6 +35,59 @@
 using namespace winrt;
 using namespace Windows::ApplicationModel::Core;
 using namespace Windows::UI::Core;
+
+// A launcher in the package may start XBSX2 from this module (XBSX2TopMain, beside wWinMain) and pass this table.
+// Needs proper testing on more games (AI-assisted).
+struct Xbsx2BaseApi
+{
+	uint32_t size, version;
+	void (*log)(const wchar_t* line);
+	const char* (*av_version_info)();
+	const wchar_t* local_folder;
+	uint8_t* top_base;
+	uint64_t top_size;
+	const wchar_t* top_version;
+	const wchar_t* top_from;
+	void (*mark_good)();
+	void (*set_crash_filter)(long (*filter)(void* exception_pointers));
+};
+static const Xbsx2BaseApi* s_base = nullptr;
+
+// how the last run ended (LocalState\run_state.txt): running, closed, suspended or crashed
+static void WriteRunState(const char* state)
+{
+	try
+	{
+		const std::wstring path = std::wstring(winrt::Windows::Storage::ApplicationData::Current().LocalFolder().Path()) + L"\\run_state.txt";
+		if (FILE* f = _wfopen(path.c_str(), L"w"))
+		{
+			std::fputs(state, f);
+			std::fclose(f);
+		}
+	}
+	catch (...)
+	{
+	}
+}
+
+static void StartedFromLauncher()
+{
+	WriteRunState("running");
+	if (!s_base || s_base->version < 2)
+		return;
+	if (s_base->set_crash_filter) // Windows skips a filter in this module then
+		s_base->set_crash_filter([](void*) -> long {
+			WriteRunState("crashed");
+			return EXCEPTION_CONTINUE_SEARCH;
+		});
+	if (s_base->log && s_base->top_version)
+		s_base->log((std::wstring(L"XBSX2 ") + s_base->top_version + L" started").c_str());
+	std::thread([] {
+		std::this_thread::sleep_for(std::chrono::seconds(45));
+		if (s_base->mark_good)
+			s_base->mark_good();
+	}).detach();
+}
 
 struct App : implements<App, IFrameworkViewSource, IFrameworkView>
 {
@@ -50,7 +107,10 @@ struct App : implements<App, IFrameworkViewSource, IFrameworkView>
 	void Initialize(CoreApplicationView const& v)
 	{
 		v.Activated({this, &App::OnActivate});
-		CoreApplication::Suspending([](auto&&, auto&&) { UWPHost::SaveSettings(); });
+		CoreApplication::Suspending([](auto&&, auto&&) {
+			WriteRunState("suspended");
+			UWPHost::SaveSettings();
+		});
 
 		namespace WGI = winrt::Windows::Gaming::Input;
 
@@ -232,7 +292,10 @@ struct App : implements<App, IFrameworkViewSource, IFrameworkView>
 	void SetWindow(CoreWindow const& window)
 	{
 		UWPHost::SetWindow(window);
-		window.Closed([](auto&&, auto&&) { Host::RequestExitApplication(false); });
+		window.Closed([](auto&&, auto&&) {
+			WriteRunState("closed");
+			Host::RequestExitApplication(false);
+		});
 		const auto navigation = Windows::UI::Core::SystemNavigationManager::GetForCurrentView();
 		navigation.BackRequested([](auto&&, const BackRequestedEventArgs& args) { args.Handled(true); });
 
@@ -369,8 +432,16 @@ int __stdcall wWinMain(HINSTANCE, HINSTANCE, PWSTR, int)
 	SDL_SetMainReady();
 
 	winrt::init_apartment();
+	StartedFromLauncher();
 
 	CoreApplication::Run(make<App>());
 
 	winrt::uninit_apartment();
+	return 0;
+}
+
+extern "C" __declspec(dllexport) int XBSX2TopMain(const Xbsx2BaseApi* api)
+{
+	s_base = api;
+	return wWinMain(nullptr, nullptr, nullptr, 0);
 }
