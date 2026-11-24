@@ -1682,6 +1682,36 @@ static bool GameVaultReturnButton(const char* title)
 	return pressed;
 }
 static const char* const kGvReturn = "Return to Game Vault##gvreturn";
+static const char* const kGvFsr = ICON_FA_WAND_MAGIC_SPARKLES " Sharper Picture (FSR)##gvfsr";
+static int s_gv_fsr_step = 0;   // Left / Right on the Sharper Picture row this frame: -1 / +1
+// (testing) gv-menu-keys.txt in XBSX2's data folder: its letters are pressed in the pause menu, one every few frames
+// (U D L R A B), so the menu can be checked on console screenshots without a controller
+static void GvTestKeys()
+{
+	static std::string s_keys;
+	static int s_frame = 0;
+	if (++s_frame % 30 == 0 && s_keys.empty())
+	{
+		const std::string f = Path::Combine(EmuFolders::DataRoot, "gv-menu-keys.txt");
+		if (std::optional<std::string> k = FileSystem::ReadFileToString(f.c_str()))
+		{
+			FileSystem::DeleteFilePath(f.c_str());
+			s_keys = *k;
+		}
+	}
+	if (s_keys.empty() || s_frame % 8 != 0)
+		return;
+	const char c = s_keys.front();
+	s_keys.erase(0, 1);
+	const ImGuiKey key = c == 'U' ? ImGuiKey_GamepadDpadUp : c == 'D' ? ImGuiKey_GamepadDpadDown :
+						 c == 'L' ? ImGuiKey_GamepadDpadLeft : c == 'R' ? ImGuiKey_GamepadDpadRight :
+						 c == 'A' ? ImGuiKey_GamepadFaceDown : c == 'B' ? ImGuiKey_GamepadFaceRight : ImGuiKey_None;
+	if (key != ImGuiKey_None)
+	{
+		ImGui::GetIO().AddKeyEvent(key, true);
+		ImGui::GetIO().AddKeyEvent(key, false);
+	}
+}
 #endif
 
 void FullscreenUI::DrawPauseMenu(MainWindowType type)
@@ -1810,6 +1840,22 @@ void FullscreenUI::DrawPauseMenu(MainWindowType type)
 			const bool down_pressed = ImGui::IsKeyPressed(ImGuiKey_GamepadDpadDown, ImGuiInputFlags_Repeat, ImGuiKeyOwner_NoOwner) ||
 									  ImGui::IsKeyPressed(ImGuiKey_DownArrow, ImGuiInputFlags_Repeat, ImGuiKeyOwner_NoOwner);
 
+#if defined(WINRT_XBOX)
+			GvTestKeys();
+			// Sharper Picture (FSR): Left / Right on its row, read here with the Up / Down wrap (the menu's navigation
+			// takes the D-pad first, so a check inside the row never saw them)
+			if (s_current_pause_submenu == PauseSubMenu::None && ImGui::GetFocusID() == ImGui::GetID(kGvFsr))
+			{
+				if (ImGui::IsKeyPressed(ImGuiKey_GamepadDpadLeft, ImGuiInputFlags_Repeat, ImGuiKeyOwner_NoOwner) ||
+					ImGui::IsKeyPressed(ImGuiKey_LeftArrow, ImGuiInputFlags_Repeat, ImGuiKeyOwner_NoOwner) ||
+					ImGui::IsKeyPressed(ImGuiKey_GamepadLStickLeft, ImGuiInputFlags_Repeat, ImGuiKeyOwner_NoOwner))
+					s_gv_fsr_step = -1;
+				else if (ImGui::IsKeyPressed(ImGuiKey_GamepadDpadRight, ImGuiInputFlags_Repeat, ImGuiKeyOwner_NoOwner) ||
+						 ImGui::IsKeyPressed(ImGuiKey_RightArrow, ImGuiInputFlags_Repeat, ImGuiKeyOwner_NoOwner) ||
+						 ImGui::IsKeyPressed(ImGuiKey_GamepadLStickRight, ImGuiInputFlags_Repeat, ImGuiKeyOwner_NoOwner))
+					s_gv_fsr_step = 1;
+			}
+#endif
 			if (up_pressed || down_pressed)
 			{
 				const ImGuiID current_focus_id = ImGui::GetFocusID();
@@ -1883,7 +1929,9 @@ void FullscreenUI::DrawPauseMenu(MainWindowType type)
 						ClosePauseMenu();
 						Host::RunOnCPUThread([]() { SaveStateSelectorUI::LoadCurrentSlot(); });
 					}
-					const bool fps_on = GSConfig.OsdShowFPS;
+					// (the saved settings, not GSConfig: the running settings are only applied again after the menu,
+					// so a second press read the old value)
+					const bool fps_on = Host::GetBaseBoolSettingValue("EmuCore/GS", "OsdShowFPS", false);
 					if (ImGuiFullscreen::ActiveButtonWithRightText(FSUI_ICONSTR(ICON_FA_STOPWATCH, "Show FPS"), fps_on ? "On" : "Off", false))
 					{
 						Host::SetBaseBoolSettingValue("EmuCore/GS", "OsdShowFPS", !fps_on);
@@ -1894,28 +1942,17 @@ void FullscreenUI::DrawPauseMenu(MainWindowType type)
 					// Sharper Picture (FSR), as in Game Vault's Options: Off or 10..100% (AMD CAS sharpen and resize at that
 					// sharpness, what Game Vault's fsr=1&fsrs= sets). A: 10% up, after 100% back to Off; Left / Right:
 					// 10% down / up, stopping at Off and 100%.
-					const bool fsr_on = GSConfig.CASMode != GSCASMode::Disabled;
-					const int fsr_pct = fsr_on ? std::clamp(GSConfig.CAS_Sharpness / 10 * 10, 10, 100) : 0;
-					// the value between arrows: Left / Right change it (the D-pad is the menu's own, so it is read
-					// without an owner, as the Up / Down wrap above does)
+					const bool fsr_on = Host::GetBaseIntSettingValue("EmuCore/GS", "CASMode", 0) != static_cast<int>(GSCASMode::Disabled);
+					const int fsr_pct = fsr_on ? std::clamp(Host::GetBaseIntSettingValue("EmuCore/GS", "CASSharpness", 50) / 10 * 10, 10, 100) : 0;
+					// the value between arrows; Left / Right change it (DrawPauseMenu's input step, GvFsrStep)
 					if (fsr_on)
 						value.format("{}  {}%  {}", ICON_FA_CARET_LEFT, fsr_pct, ICON_FA_CARET_RIGHT);
 					else
 						value.format("{}  Off  {}", ICON_FA_CARET_LEFT, ICON_FA_CARET_RIGHT);
-					const char* fsr_title = FSUI_ICONSTR(ICON_FA_WAND_MAGIC_SPARKLES, "Sharper Picture (FSR)");
-					const ImGuiID fsr_id = ImGui::GetID(fsr_title);
-					int next = fsr_pct;
-					if (ImGuiFullscreen::ActiveButtonWithRightText(fsr_title, value.c_str(), false))
-						next = fsr_pct >= 100 ? 0 : fsr_pct + 10;
-					if (ImGui::GetFocusID() == fsr_id && !ImGui::IsPopupOpen(0u, ImGuiPopupFlags_AnyPopup))
-					{
-						if (ImGui::IsKeyPressed(ImGuiKey_GamepadDpadLeft, ImGuiInputFlags_Repeat, ImGuiKeyOwner_NoOwner) ||
-							ImGui::IsKeyPressed(ImGuiKey_LeftArrow, ImGuiInputFlags_Repeat, ImGuiKeyOwner_NoOwner))
-							next = std::max(fsr_pct - 10, 0);
-						else if (ImGui::IsKeyPressed(ImGuiKey_GamepadDpadRight, ImGuiInputFlags_Repeat, ImGuiKeyOwner_NoOwner) ||
-								 ImGui::IsKeyPressed(ImGuiKey_RightArrow, ImGuiInputFlags_Repeat, ImGuiKeyOwner_NoOwner))
-							next = std::min(fsr_pct + 10, 100);
-					}
+					int next = fsr_pct + s_gv_fsr_step * 10;
+					s_gv_fsr_step = 0;
+					next = std::clamp(next, 0, 100);
+					ImGuiFullscreen::ActiveButtonWithRightText(kGvFsr, value.c_str(), false);
 					if (next != fsr_pct)
 					{
 						Host::SetBaseIntSettingValue("EmuCore/GS", "CASMode",
@@ -1924,6 +1961,7 @@ void FullscreenUI::DrawPauseMenu(MainWindowType type)
 							Host::SetBaseIntSettingValue("EmuCore/GS", "CASSharpness", next);
 						Host::SetBaseBoolSettingValue("GameVault", "CasOn", next != 0);
 						Host::CommitBaseSettingChanges();
+						Console.WriteLn("Game Vault: Sharper picture (FSR) %d%% from the pause menu", next);
 					}
 				}
 #endif
