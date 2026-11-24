@@ -8,7 +8,7 @@
 	<Identity
 	  Name="GamerDad.XBSX2ForGameVault"
 	  Publisher="CN=GamerDad"
-	  Version="2.0.9.23" />
+	  Version="2.0.9.29" />
 
 	<Properties>
 		<DisplayName>Game Vault · PS2 (XBSX2)</DisplayName>

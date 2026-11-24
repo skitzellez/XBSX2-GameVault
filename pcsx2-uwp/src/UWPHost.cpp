@@ -713,6 +713,19 @@ void Host::OnPerformanceMetricsUpdated()
 {
 	if (VMManager::GetState() == VMState::Running)
 		GvTracker();
+	// (testing) gv-open-menu.txt in XBSX2's data folder opens the pause menu once, so it can be checked on a console
+	// screenshot without a controller
+	{
+		static u64 s_menu_check_ms = 0;
+		const u64 now = GvNowMs();
+		if (now - s_menu_check_ms >= 2000 && VMManager::GetState() == VMState::Running)
+		{
+			s_menu_check_ms = now;
+			const std::string f = Path::Combine(EmuFolders::DataRoot, "gv-open-menu.txt");
+			if (FileSystem::FileExists(f.c_str()) && FileSystem::DeleteFilePath(f.c_str()))
+				FullscreenUI::OpenPauseMenu();
+		}
+	}
 	// OSD handles the numbers. Game Vault: the no-picture notice (see s_gv_vm_start_ms). Runs on the GS thread
 	// every half second, also while the screen is black. The 25 s count from the start, or from the last time a
 	// picture mode was set (a reset clears it for a moment).

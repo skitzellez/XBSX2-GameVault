@@ -1660,6 +1660,30 @@ static void DrawShadowedText(
 	ImGuiFullscreen::AddTextWithShadow(dl, font, pos, col, text, text_end, wrap_width);
 }
 
+#if defined(WINRT_XBOX)
+// Game Vault: "Return to Game Vault" with Game Vault's emblem (fullscreenui/gamevault.png) beside the text, the first
+// row of the pause menu as in RetroArch's Quick Menu
+static bool GameVaultReturnButton(const char* title)
+{
+	ImVec2 min, max;
+	bool visible, hovered;
+	const bool pressed = ImGuiFullscreen::MenuButtonFrame(title, true, ImGuiFullscreen::LAYOUT_MENU_BUTTON_HEIGHT_NO_SUMMARY,
+		&visible, &hovered, &min, &max);
+	if (!visible)
+		return pressed;
+	const float h = max.y - min.y;
+	ImDrawList* dl = ImGui::GetWindowDrawList();
+	if (GSTexture* tex = GetCachedTexture("fullscreenui/gamevault.png"))
+		dl->AddImage(reinterpret_cast<ImTextureID>(tex->GetNativeHandle()), min, ImVec2(min.x + h, max.y));
+	const ImVec2 text_min(min.x + h + LayoutScale(12.0f), min.y);
+	ImGui::PushFont(g_large_font.first, g_large_font.second);
+	ImGuiFullscreen::RenderTextClippedWithShadow(text_min, max, title, nullptr, nullptr, ImVec2(0.0f, 0.0f), nullptr);
+	ImGui::PopFont();
+	return pressed;
+}
+static const char* const kGvReturn = "Return to Game Vault##gvreturn";
+#endif
+
 void FullscreenUI::DrawPauseMenu(MainWindowType type)
 {
 	ImDrawList* dl = ImGui::GetBackgroundDrawList();
@@ -1765,7 +1789,12 @@ void FullscreenUI::DrawPauseMenu(MainWindowType type)
 			ImVec2(10.0f, 10.0f), ImGuiWindowFlags_NoBackground))
 	{
 		static constexpr u32 submenu_item_count[] = {
+#if defined(WINRT_XBOX)
+			12, // None: Return to Game Vault, Resume, Quick Save, Quick Load, Show FPS, Sharper Picture, Frame Limit,
+			    // Load / Save State, Game Properties, Settings, Close Game
+#else
 			11, // None
+#endif
 			4, // Exit
 			3, // Achievements
 		};
@@ -1791,7 +1820,11 @@ void FullscreenUI::DrawPauseMenu(MainWindowType type)
 				switch (s_current_pause_submenu)
 				{
 					case PauseSubMenu::None:
+#if defined(WINRT_XBOX)
+						first_id = ImGui::GetID(kGvReturn);
+#else
 						first_id = ImGui::GetID(FSUI_ICONSTR(ICON_FA_PLAY, "Resume Game"));
+#endif
 						last_id = ImGui::GetID(FSUI_ICONSTR(ICON_FA_POWER_OFF, "Close Game"));
 						break;
 					case PauseSubMenu::Exit:
@@ -1825,8 +1858,75 @@ void FullscreenUI::DrawPauseMenu(MainWindowType type)
 				if (just_focused)
 					ImGui::SetFocusID(ImGui::GetID(FSUI_ICONSTR(ICON_FA_PLAY, "Resume Game")), ImGui::GetCurrentWindow());
 
+#if defined(WINRT_XBOX)
+				// Game Vault: back to Game Vault (the game closes without a save state, as Close Game does; XBSX2 then
+				// opens Game Vault through its launchOnExit link)
+				if (GameVaultReturnButton(kGvReturn))
+					RequestShutdown(false);
+#endif
+
 				if (ActiveButton(FSUI_ICONSTR(ICON_FA_PLAY, "Resume Game"), false) || WantsToCloseMenu())
 					ClosePauseMenu();
+
+#if defined(WINRT_XBOX)
+				// Game Vault quick menu: the same slot as the View+RB / View+LB combos, and the frame-rate counter
+				{
+					SmallString value;
+					value.format("Slot {}", SaveStateSelectorUI::GetCurrentSlot());
+					if (ImGuiFullscreen::ActiveButtonWithRightText(FSUI_ICONSTR(ICON_FA_DOWNLOAD, "Quick Save"), value.c_str(), false, can_save_state))
+					{
+						ClosePauseMenu();
+						Host::RunOnCPUThread([]() { SaveStateSelectorUI::SaveCurrentSlot(); });
+					}
+					if (ImGuiFullscreen::ActiveButtonWithRightText(FSUI_ICONSTR(ICON_FA_ARROW_ROTATE_LEFT, "Quick Load"), value.c_str(), false, can_load_state))
+					{
+						ClosePauseMenu();
+						Host::RunOnCPUThread([]() { SaveStateSelectorUI::LoadCurrentSlot(); });
+					}
+					const bool fps_on = GSConfig.OsdShowFPS;
+					if (ImGuiFullscreen::ActiveButtonWithRightText(FSUI_ICONSTR(ICON_FA_STOPWATCH, "Show FPS"), fps_on ? "On" : "Off", false))
+					{
+						Host::SetBaseBoolSettingValue("EmuCore/GS", "OsdShowFPS", !fps_on);
+						// (a choice made here is the player's own: Game Vault's fps=1 switch leaves it alone)
+						Host::SetBaseBoolSettingValue("GameVault", "FpsOn", false);
+						Host::CommitBaseSettingChanges();
+					}
+					// Sharper Picture (FSR), as in Game Vault's Options: Off or 10..100% (AMD CAS sharpen and resize at that
+					// sharpness, what Game Vault's fsr=1&fsrs= sets). A: 10% up, after 100% back to Off; Left / Right:
+					// 10% down / up, stopping at Off and 100%.
+					const bool fsr_on = GSConfig.CASMode != GSCASMode::Disabled;
+					const int fsr_pct = fsr_on ? std::clamp(GSConfig.CAS_Sharpness / 10 * 10, 10, 100) : 0;
+					// the value between arrows: Left / Right change it (the D-pad is the menu's own, so it is read
+					// without an owner, as the Up / Down wrap above does)
+					if (fsr_on)
+						value.format("{}  {}%  {}", ICON_FA_CARET_LEFT, fsr_pct, ICON_FA_CARET_RIGHT);
+					else
+						value.format("{}  Off  {}", ICON_FA_CARET_LEFT, ICON_FA_CARET_RIGHT);
+					const char* fsr_title = FSUI_ICONSTR(ICON_FA_WAND_MAGIC_SPARKLES, "Sharper Picture (FSR)");
+					const ImGuiID fsr_id = ImGui::GetID(fsr_title);
+					int next = fsr_pct;
+					if (ImGuiFullscreen::ActiveButtonWithRightText(fsr_title, value.c_str(), false))
+						next = fsr_pct >= 100 ? 0 : fsr_pct + 10;
+					if (ImGui::GetFocusID() == fsr_id && !ImGui::IsPopupOpen(0u, ImGuiPopupFlags_AnyPopup))
+					{
+						if (ImGui::IsKeyPressed(ImGuiKey_GamepadDpadLeft, ImGuiInputFlags_Repeat, ImGuiKeyOwner_NoOwner) ||
+							ImGui::IsKeyPressed(ImGuiKey_LeftArrow, ImGuiInputFlags_Repeat, ImGuiKeyOwner_NoOwner))
+							next = std::max(fsr_pct - 10, 0);
+						else if (ImGui::IsKeyPressed(ImGuiKey_GamepadDpadRight, ImGuiInputFlags_Repeat, ImGuiKeyOwner_NoOwner) ||
+								 ImGui::IsKeyPressed(ImGuiKey_RightArrow, ImGuiInputFlags_Repeat, ImGuiKeyOwner_NoOwner))
+							next = std::min(fsr_pct + 10, 100);
+					}
+					if (next != fsr_pct)
+					{
+						Host::SetBaseIntSettingValue("EmuCore/GS", "CASMode",
+							static_cast<int>(next ? GSCASMode::SharpenAndResize : GSCASMode::Disabled));
+						if (next)
+							Host::SetBaseIntSettingValue("EmuCore/GS", "CASSharpness", next);
+						Host::SetBaseBoolSettingValue("GameVault", "CasOn", next != 0);
+						Host::CommitBaseSettingChanges();
+					}
+				}
+#endif
 
 				if (ActiveButton(FSUI_ICONSTR(ICON_FA_FORWARD_FAST, "Toggle Frame Limit"), false))
 				{
@@ -1851,6 +1951,7 @@ void FullscreenUI::DrawPauseMenu(MainWindowType type)
 					SwitchToGameSettings();
 				}
 
+#if !defined(WINRT_XBOX) // Xbox: no achievements, screenshots, software renderer or disc swap in this menu (fits on screen)
 				if (ActiveButton(FSUI_ICONSTR(ICON_FA_TROPHY, "Achievements"), false, Achievements::HasAchievementsOrLeaderboards()))
 				{
 					// skip second menu and go straight to cheevos if there's no lbs
@@ -1879,6 +1980,7 @@ void FullscreenUI::DrawPauseMenu(MainWindowType type)
 					s_current_main_window = MainWindowType::None;
 					RequestChangeDisc();
 				}
+#endif
 
 				if (ActiveButton(FSUI_ICONSTR(ICON_FA_SLIDERS, "Settings"), false))
 					SwitchToSettings();
