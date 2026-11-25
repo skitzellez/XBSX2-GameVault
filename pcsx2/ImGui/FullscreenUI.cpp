@@ -1907,8 +1907,14 @@ void FullscreenUI::DrawPauseMenu(MainWindowType type)
 #if defined(WINRT_XBOX)
 				// Game Vault: back to Game Vault (the game closes without a save state, as Close Game does; XBSX2 then
 				// opens Game Vault through its launchOnExit link)
+				// 2.0.9.33: the whole app closes, not only the game (owner 11-24: it went to XBSX2's own main menu, which
+				// stays open, so launchOnExit never ran). XBSX2's main loop ends when the emulator thread stops, then
+				// opens Game Vault.
 				if (GameVaultReturnButton(kGvReturn))
-					RequestShutdown(false);
+				{
+					ClosePauseMenu();
+					Host::RunOnCPUThread([]() { Host::RequestExitApplication(false); });
+				}
 #endif
 
 				if (ActiveButton(FSUI_ICONSTR(ICON_FA_PLAY, "Resume Game"), false) || WantsToCloseMenu())
